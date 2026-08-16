@@ -127,9 +127,11 @@ public class EmployeeService {
         employees.save(employee);
 
         statusHistory.save(EmployeeStatusHistory.open(employee, EmployeeStatus.INVITED, form.employmentType(), today));
-        if (employee.manager() != null) {
-            managerHistory.save(EmployeeManagerHistory.open(employee, employee.manager(), today));
-        }
+        // After save(), because the manager transition needs the employee's id (see
+        // applyManagerChange). This is also the only place a manager-history row is written on
+        // create: a second managerHistory.save() used to sit here, duplicating the row
+        // reassignManagerInternal already writes, which left two rows open on the same day.
+        applyManagerChange(employee, form.managerId());
 
         UUID userId = inviteService.invite(form.email(), Set.of(Role.EMPLOYEE), appBaseUrl, tenantName);
         employee.linkUser(userId);
@@ -188,6 +190,7 @@ public class EmployeeService {
                     "EMPLOYEE_EMAIL_TAKEN", "An employee with that email already exists");
         }
         applyAdminFields(employee, patch);
+        applyManagerChange(employee, patch.managerId());
         return employee;
     }
 
@@ -213,11 +216,21 @@ public class EmployeeService {
                 patch.workingHoursPerDay() == null ? BigDecimal.valueOf(8.0) : patch.workingHoursPerDay(),
                 patch.currency(),
                 patch.baseCompensation());
-        if (patch.managerId() != null || employee.manager() != null) {
-            UUID currentManagerId = employee.manager() == null ? null : employee.manager().requireId();
-            if (!java.util.Objects.equals(currentManagerId, patch.managerId())) {
-                reassignManagerInternal(employee, patch.managerId());
-            }
+    }
+
+    /**
+     * Deliberately not part of {@link #applyAdminFields}: this needs a <em>persisted</em>
+     * employee, and that one does not. Both the self-management guard and the open-history
+     * lookup below call {@code requireId()}, and {@code @UuidGenerator} does not assign an id
+     * until {@code persist()} — so running this before {@code save()} threw "Employee has not
+     * been persisted" and made every create-with-a-manager a 500. {@link #create} therefore
+     * calls it after {@code save()}; {@link #updateAdminFields} calls it straight after
+     * {@link #applyAdminFields} on a record that is already persisted.
+     */
+    private void applyManagerChange(Employee employee, @Nullable UUID managerId) {
+        UUID currentManagerId = employee.manager() == null ? null : employee.manager().requireId();
+        if (!java.util.Objects.equals(currentManagerId, managerId)) {
+            reassignManagerInternal(employee, managerId);
         }
     }
 
