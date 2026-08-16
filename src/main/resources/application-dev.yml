@@ -24,4 +24,4 @@ helyx:
     from: ${HELYX_EMAIL_FROM:no-reply@helyx.local}
   people:
     # Dev-only fixed key, never used in prod (see application.yml's no-default line).
-    encryption-key: ${HELYX_EMPLOYEE_ENCRYPTION_KEY:AAHh4aTz8hwxVYqF5fUqjC/gINBK5yNmo5xyhpRlSMI=}
+    encryption-key: ${HELYX_EMPLOYEE_ENCRYPTION_KEY:nD7WkJr9yrrNuO/Imc6JN/N8SKo+PsNZi1DAcSFpih4=}

@@ -44,3 +44,6 @@ GRANT SELECT ON emergency_contact TO rls_probe;
 GRANT SELECT ON government_id TO rls_probe;
 GRANT SELECT ON bank_detail TO rls_probe;
 GRANT SELECT ON benefit TO rls_probe;
+GRANT SELECT ON leave_type TO rls_probe;
+GRANT SELECT ON public_holiday TO rls_probe;
+GRANT SELECT ON leave_balance TO rls_probe;

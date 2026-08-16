@@ -21,6 +21,7 @@ import java.util.UUID;
 import org.jspecify.annotations.Nullable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Propagation;
@@ -50,6 +51,7 @@ public class EmployeeService {
     private final OrgFacade orgFacade;
     private final SessionRevoker sessionRevoker;
     private final Clock clock;
+    private final ApplicationEventPublisher events;
 
     EmployeeService(
             EmployeeRepository employees,
@@ -64,7 +66,8 @@ public class EmployeeService {
             AppUserRepository appUsers,
             OrgFacade orgFacade,
             SessionRevoker sessionRevoker,
-            Clock clock) {
+            Clock clock,
+            ApplicationEventPublisher events) {
         this.employees = employees;
         this.statusHistory = statusHistory;
         this.managerHistory = managerHistory;
@@ -78,6 +81,7 @@ public class EmployeeService {
         this.orgFacade = orgFacade;
         this.sessionRevoker = sessionRevoker;
         this.clock = clock;
+        this.events = events;
     }
 
     @Transactional(readOnly = true)
@@ -129,6 +133,13 @@ public class EmployeeService {
 
         UUID userId = inviteService.invite(form.email(), Set.of(Role.EMPLOYEE), appBaseUrl, tenantName);
         employee.linkUser(userId);
+
+        // Published, not called directly: people must not depend on timeoff (see
+        // EmployeeHiredEvent's doc comment). Plain @EventListener, not @TransactionalEventListener
+        // AFTER_COMMIT like EmployeeInviteAcceptedListener — the initial balance grant is an
+        // internal DB write with no reason to survive this employee record failing to commit, so
+        // it belongs in the same transaction, not a REQUIRES_NEW one after it.
+        events.publishEvent(new EmployeeHiredEvent(employee.requireId()));
 
         log.info("Created employee {}", employee.requireId());
         return employee;

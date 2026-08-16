@@ -1,0 +1,157 @@
+<!DOCTYPE html>
+<html lang="en" xmlns:th="http://www.thymeleaf.org">
+<body>
+<th:block th:replace="~{layout :: layout('Leave Types', ~{::#content})}">
+  <div id="content" class="flex-grow-1 p-4">
+
+    <div class="d-flex justify-content-between align-items-start mb-4">
+      <h1>Leave Types</h1>
+    </div>
+
+    <!--/* Mirrors admin/organization.html's #organization-content pattern (see
+           AdminLeaveController's class Javadoc). */-->
+    <div id="leave-types-content" hx-swap-oob="true" th:fragment="content">
+
+      <div class="d-flex justify-content-between align-items-center mb-3">
+        <button type="button" class="btn btn-primary btn-sm"
+                th:hx-get="@{/admin/leave-types/new-form}"
+                hx-target="#leaveTypeOffcanvasBody" hx-swap="innerHTML">
+          <i class="bi bi-plus-lg" aria-hidden="true"></i> Add Leave Type
+        </button>
+      </div>
+
+      <div th:if="${#lists.isEmpty(leaveTypes)}" class="text-center text-muted py-5 mb-5">
+        <i class="bi bi-calendar-check fs-1 d-block mb-2" aria-hidden="true"></i>
+        <p class="mb-0">No leave types yet. Add one to get started.</p>
+      </div>
+
+      <div th:unless="${#lists.isEmpty(leaveTypes)}" class="table-responsive mb-5">
+        <table class="table table-hover align-middle">
+          <thead>
+            <tr>
+              <th scope="col">Name</th>
+              <th scope="col">Annual allowance</th>
+              <th scope="col">Paid</th>
+              <th scope="col">Half-day</th>
+              <th scope="col">Status</th>
+              <th scope="col" class="text-end">Actions</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr th:each="leaveType : ${leaveTypes}">
+              <td th:text="${leaveType.name()}">Annual</td>
+              <td th:text="${leaveType.defaultAnnualAllowance()}">30</td>
+              <td th:text="${leaveType.paid()} ? 'Paid' : 'Unpaid'">Paid</td>
+              <td th:text="${leaveType.allowsHalfDay()} ? 'Allowed' : 'Not allowed'">Allowed</td>
+              <td>
+                <span class="badge" th:classappend="${leaveType.active()} ? 'text-bg-success' : 'text-bg-secondary'"
+                      th:text="${leaveType.active()} ? 'Active' : 'Inactive'">Active</span>
+              </td>
+              <td class="text-end">
+                <button type="button" class="btn btn-outline-secondary btn-sm" aria-label="Edit leave type"
+                        th:hx-get="@{/admin/leave-types/{id}/edit-form(id=${leaveType.id})}"
+                        hx-target="#leaveTypeOffcanvasBody" hx-swap="innerHTML">
+                  <i class="bi bi-pencil" aria-hidden="true"></i>
+                </button>
+                <button th:if="${leaveType.active()}" type="button" class="btn btn-outline-secondary btn-sm"
+                        aria-label="Deactivate leave type"
+                        th:hx-post="@{/admin/leave-types/{id}/deactivate(id=${leaveType.id})}"
+                        hx-target="#leave-types-content" hx-swap="outerHTML">
+                  <i class="bi bi-pause-circle" aria-hidden="true"></i>
+                </button>
+                <button th:unless="${leaveType.active()}" type="button" class="btn btn-outline-success btn-sm"
+                        aria-label="Activate leave type"
+                        th:hx-post="@{/admin/leave-types/{id}/activate(id=${leaveType.id})}"
+                        hx-target="#leave-types-content" hx-swap="outerHTML">
+                  <i class="bi bi-play-circle" aria-hidden="true"></i>
+                </button>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+    </div>
+
+    <!--/* Slide-over panel (UI Guidelines §6). Never part of an htmx response — only
+           #leaveTypeOffcanvasBody is swapped. */-->
+    <div class="offcanvas offcanvas-end" tabindex="-1" id="leaveTypeOffcanvas" style="width: 480px"
+         aria-labelledby="leaveTypeOffcanvasLabel">
+      <div class="offcanvas-header">
+        <h5 class="offcanvas-title" id="leaveTypeOffcanvasLabel">Leave Type</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="offcanvas" aria-label="Close"></button>
+      </div>
+      <div class="offcanvas-body" id="leaveTypeOffcanvasBody">
+        <th:block th:fragment="leaveTypeForm">
+  <form th:object="${leaveTypeForm}"
+        th:attr="hx-post=${editingLeaveTypeId == null} ? @{/admin/leave-types} : null,
+                 hx-patch=${editingLeaveTypeId != null} ? @{/admin/leave-types/{id}(id=${editingLeaveTypeId})} : null"
+        hx-target="#leaveTypeOffcanvasBody" hx-swap="innerHTML" hx-indicator="#leaveTypeFormSpinner">
+    <h6 class="text-muted mb-3" th:text="${editingLeaveTypeId != null} ? 'Editing' : 'Creating new'">Creating new</h6>
+
+    <div class="mb-3">
+      <label class="form-label" for="leave-type-name">
+        Name <span class="text-danger" aria-hidden="true">*</span>
+      </label>
+      <input class="form-control" type="text" id="leave-type-name" th:field="*{name}" maxlength="100" required
+             th:classappend="${#fields.hasErrors('name')} ? 'is-invalid'" />
+      <div class="invalid-feedback" th:if="${#fields.hasErrors('name')}" th:errors="*{name}">Invalid name</div>
+    </div>
+
+    <div class="mb-3">
+      <label class="form-label" for="leave-type-defaultAnnualAllowance">
+        Default annual allowance (days) <span class="text-danger" aria-hidden="true">*</span>
+      </label>
+      <input class="form-control" type="number" step="0.5" min="0" id="leave-type-defaultAnnualAllowance"
+             th:field="*{defaultAnnualAllowance}" required
+             th:classappend="${#fields.hasErrors('defaultAnnualAllowance')} ? 'is-invalid'" />
+      <div class="invalid-feedback" th:if="${#fields.hasErrors('defaultAnnualAllowance')}"
+           th:errors="*{defaultAnnualAllowance}">Invalid allowance</div>
+    </div>
+
+    <div class="form-check mb-2">
+      <input class="form-check-input" type="checkbox" id="leave-type-paid" th:field="*{paid}" />
+      <label class="form-check-label" for="leave-type-paid">Paid</label>
+    </div>
+    <div class="form-check mb-2">
+      <input class="form-check-input" type="checkbox" id="leave-type-allowsHalfDay" th:field="*{allowsHalfDay}" />
+      <label class="form-check-label" for="leave-type-allowsHalfDay">Allows half-day requests</label>
+    </div>
+    <div class="form-check mb-2">
+      <input class="form-check-input" type="checkbox" id="leave-type-allowsBackdated" th:field="*{allowsBackdated}" />
+      <label class="form-check-label" for="leave-type-allowsBackdated">Allows backdated requests</label>
+    </div>
+    <div class="form-check mb-3">
+      <input class="form-check-input" type="checkbox" id="leave-type-requiresApproval" th:field="*{requiresApproval}" />
+      <label class="form-check-label" for="leave-type-requiresApproval">Requires approval</label>
+    </div>
+
+    <div class="mb-3">
+      <label class="form-label" for="leave-type-description">Description</label>
+      <textarea class="form-control" id="leave-type-description" th:field="*{description}" rows="3"></textarea>
+    </div>
+
+    <div class="d-flex justify-content-between align-items-center mt-4">
+      <button type="button" class="btn btn-outline-secondary btn-sm" data-bs-dismiss="offcanvas">Cancel</button>
+      <button class="btn btn-primary btn-sm" type="submit">
+        <span id="leaveTypeFormSpinner" class="spinner-border spinner-border-sm htmx-indicator me-1"
+              aria-hidden="true"></span>
+        Save leave type
+      </button>
+    </div>
+  </form>
+
+  <!--/* th:if and th:replace on the same tag don't compose (th:replace runs regardless of th:if,
+         see admin/organization.html) — nest instead. */-->
+  <th:block th:if="${refreshTable}">
+    <div th:replace="~{::content}"></div>
+  </th:block>
+        </th:block>
+      </div>
+    </div>
+
+  </div>
+</th:block>
+
+</body>
+</html>

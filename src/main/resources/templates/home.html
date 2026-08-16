@@ -5,6 +5,27 @@
   <div id="content" class="flex-grow-1 p-4">
     <h1 th:text="${firstName != null ? 'Welcome, ' + firstName + '!' : 'Welcome!'}">Welcome!</h1>
     <p class="text-muted">Here's your Helyx HR home.</p>
+
+    <h2 class="h5 mt-4 mb-3" th:if="${!#lists.isEmpty(leaveBalances)}">Book Time Off</h2>
+    <div class="row row-cols-1 row-cols-md-3 g-3" th:if="${!#lists.isEmpty(leaveBalances)}">
+      <div class="col" th:each="balance : ${leaveBalances}">
+        <div class="card h-100">
+          <div class="card-body">
+            <div class="d-flex align-items-center gap-2 mb-2">
+              <i th:if="${balance.icon() != null}" th:class="'bi ' + ${balance.icon()}"
+                 th:style="${balance.color() != null} ? 'color:' + ${balance.color()}" aria-hidden="true"></i>
+              <h3 class="h6 mb-0" th:text="${balance.leaveTypeName()}">Annual</h3>
+            </div>
+            <p class="display-6 mb-0" th:text="${balance.remaining()}">15</p>
+            <p class="text-muted mb-0">days remaining</p>
+            <p class="text-muted small mb-0">
+              <span th:text="${balance.granted()}">30</span> granted &middot;
+              <span th:text="${balance.used()}">0</span> used
+            </p>
+          </div>
+        </div>
+      </div>
+    </div>
   </div>
 </th:block>
 </body>

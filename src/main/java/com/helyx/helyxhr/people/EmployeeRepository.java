@@ -36,6 +36,9 @@ public interface EmployeeRepository extends TenantAwareRepository<Employee> {
     /** Drives the Department delete-guard's employee count (via {@link PeopleFacade}). */
     long countByDepartmentIdAndStatusNot(UUID departmentId, EmployeeStatus status);
 
+    /** Drives {@link PeopleFacade#listActiveEmployeeHireInfo()} — no department/manager join needed. */
+    List<Employee> findAllByStatusNot(EmployeeStatus status);
+
     @EntityGraph(attributePaths = {"department", "manager"})
     List<Employee> findAllByOrderByLastNameAscFirstNameAsc();
 

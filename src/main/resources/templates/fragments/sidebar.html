@@ -21,6 +21,12 @@
       <a class="nav-link" th:href="@{/admin/organization}">Organization</a>
     </li>
     <li class="nav-item" sec:authorize="hasRole('ADMIN')">
+      <a class="nav-link" th:href="@{/admin/leave-types}">Leave Types</a>
+    </li>
+    <li class="nav-item" sec:authorize="hasRole('ADMIN')">
+      <a class="nav-link" th:href="@{/admin/holidays}">Holidays</a>
+    </li>
+    <li class="nav-item" sec:authorize="hasRole('ADMIN')">
       <a class="nav-link disabled" href="#" tabindex="-1" aria-disabled="true">Reports</a>
     </li>
   </ul>

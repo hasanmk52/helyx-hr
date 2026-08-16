@@ -45,6 +45,7 @@
 		<!-- Application dependency versions (CLAUDE.md §7: one place per dependency) -->
 		<bucket4j.version>8.14.0</bucket4j.version>
 		<greenmail.version>2.1.3</greenmail.version>
+		<tika.version>3.2.3</tika.version>
 
 		<!-- Quality gate plugin/dependency versions (CLAUDE.md §7: one place per dependency) -->
 		<archunit.version>1.3.2</archunit.version>
@@ -145,6 +146,15 @@
 			<groupId>com.bucket4j</groupId>
 			<artifactId>bucket4j_jdk17-core</artifactId>
 			<version>${bucket4j.version}</version>
+		</dependency>
+
+		<!-- File-upload magic-byte/MIME sniffing (CLAUDE.md §6 A03), first user is the Holidays
+		     CSV bulk upload (Phase 1.5). tika-core only, not tika-parsers: detection only, no
+		     document parsing needed. -->
+		<dependency>
+			<groupId>org.apache.tika</groupId>
+			<artifactId>tika-core</artifactId>
+			<version>${tika.version}</version>
 		</dependency>
 
 		<dependency>

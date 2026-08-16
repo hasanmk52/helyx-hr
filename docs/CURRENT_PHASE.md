@@ -1,70 +1,73 @@
 # Current Sub-Phase
 
-**Working on:** Phase 1.5 — Leave Types, Holidays, Balances
-**Branch:** `phase-1.5-leave-config`
-**Goal:** An Admin configures the tenant's leave policy — leave types and the public holiday calendar — and every employee has a `leave_balance` row per active leave type, auto-granted on hire and refreshed by an idempotent nightly/annual job. This phase lays the data foundation Phase 1.6 (booking/approvals) reads and writes; it does not add a booking UI itself.
+**Working on:** Phase 1.6 — Leave Requests + Approvals
+**Branch:** `phase-1.6-leave-approvals`
+**Goal:** An Employee books time off against the balances Phase 1.5 granted; their Manager (or an Admin, if no manager is set) approves or rejects it; an approved request debits `leave_balance.used`; a cancellation credits it back. This is the phase that finally makes the "Book Time Off" cards on Home (and the still-placeholder "For Action" nav item) do something.
 
 ## Read these before doing anything
 
-1. `docs/Helyx_Implementation_Plan.md` — the "1.5 Leave Types, Holidays, Balances" section under Phase 1 — MVP (distinct from the later, differently-scoped top-level "Phase 1.5 — MFA + Data Import" heading further down the same document — a naming coincidence; this sub-phase is the one Phase 1.4 pointed to)
-2. `docs/Helyx_PRD.md` — §12 (Leave Management — Detailed: leave types, accrual/grant rules, pro-rating, §12.3 specifically for the duration algorithm Phase 1.6 will consume but this phase's balance math must already be compatible with), §6.2 (FR-2.x — leave type fields, holiday fields, balance fields), §21 (`leave_type`, `public_holiday`, `leave_balance` schemas), §26 (permissions matrix), §10 for the acceptance-criteria format
-3. `CLAUDE.md` — §5 (multi-tenancy contract — every new table is tenant-scoped), §6a (durable outbox — this phase likely adds no new external side effect, but re-confirm before assuming that), §8 (testing rules — grant idempotency and pro-rate math are exactly the "critical logic, TDD first" category), §10 (the "adding a new tenant-scoped entity" recipe)
-4. `docs/UI_Guidelines.md` — §6 (tables, forms — Leave Types CRUD grid follows the same list+offcanvas pattern as Organization/People), §7.1 (empty states)
-5. `docs/adr/0007` (htmx admin CRUD transaction pattern — copy for `LeaveTypeService`/`PublicHolidayService` admin endpoints), `docs/adr/0005` (system-scoped tables and the `runAsSystem` correction — required reading before writing `BalanceService.grantAnnual`'s scheduled job: it must fan out over real per-tenant contexts via `TenantFacade.listActiveTenantIds()`, exactly like `people.EmployeeTerminationJob` — `runAsSystem` alone reads zero rows for RLS-protected tables, this bit Phase 1.4 once already)
+1. `docs/Helyx_Implementation_Plan.md` — the "1.6 Leave Requests + Approvals" section under Phase 1 — MVP
+2. `docs/Helyx_PRD.md` — §12.3 (duration algorithm — the pseudocode is the spec, implement it exactly, exhaustively unit-tested per CLAUDE.md §8), §12.4 (approval flow state machine), §21 (`leave_request` schema), §26 (permissions matrix: booking is self-service for all three roles, approval is Manager-of-reports or Admin-any, no self-approval ever)
+3. `CLAUDE.md` — §5 (tenancy — `leave_request` is a fourth `timeoff` table, same RLS/`@TenantId` template as 1.5's three), §6a (durable outbox — approval/rejection/cancellation notify by email; that's an external side effect and **must** go through `email_outbox`, not an inline `mailSender.send()`), §8 ("critical logic, TDD first" explicitly names the leave duration algorithm), §10 ("Handling a state transition" recipe — sealed interface/enum + `<Entity>StateMachine` + audit + optimistic locking)
+4. `docs/UI_Guidelines.md` — §6 for the Book Time Off modal and the For Action list's layout conventions
+5. `docs/adr/0009` (this phase's direct predecessor: the `people`↔`timeoff` event-based wiring and the `PeopleFacade`/combined-transaction conventions — both apply again here) and `docs/adr/0007` (htmx admin-CRUD transaction pattern, needed again for the approval actions)
 
 ## Already in place — do not redo
 
-- **Everything from 1.1–1.4** (see git history): `TenantAwareEntity`, `TenantContext`, `TenantResolutionFilter`, `TenantIdentifierResolver`, `TenantSessionVariableListener`, the RLS template; full auth flow; `division`/`department` and the Organization admin page; `employee` and its seven sub-entities, the Employee admin CRUD + self-service Profile page, `CryptoConverter` (ADR 0008), the Employee↔AppUser invite-accept event wiring, `EmployeeTerminationJob`.
-- **`org` package and `OrgFacade`** — `DivisionService.listActive()`/`DepartmentService.listActive()` plus `OrgFacade.listActiveDepartments()`/`listActiveDivisions()` for any leave-config screen that needs to scope by department (if PRD §12 calls for department-specific leave types — check before assuming tenant-wide-only).
-- **`people` package and `PeopleFacade`** — `EmployeeService` for hire-date/status reads (`BalanceService.grantOnHire` needs `hire_date`; the nightly grant needs to iterate active employees). Read `Employee` via `PeopleFacade`-style read access if this phase's `leave` package needs employee data cross-module — **decide whether `leave` needs its own facade contract from `people` now** (this phase is `people`'s first real cross-module consumer beyond `web`), mirroring the `OrgFacade`/`PeopleFacade` split's cycle-avoidance reasoning from 1.4's carried-forward notes below.
-- **Cross-tenant scheduled job pattern** — `people.EmployeeTerminationJob` + `tenant.TenantFacade.listActiveTenantIds()` is the reference implementation for `BalanceService.grantAnnual`'s `@Scheduled(cron)` job (PRD says "runs Jan 1"): fan out over `TenantFacade.listActiveTenantIds()`, set a **real** `TenantContext` per iteration — `TenantContext.runAsSystem(...)` alone reads zero rows from RLS-protected tables (ADR 0003), it only bypasses Hibernate's own `@TenantId` filter. This cost real debugging time in 1.4; don't rediscover it.
-- **htmx + Alpine, offcanvas-form-plus-table-swap** — `admin/organization.html`/`AdminOrganizationController` and `people/list.html`/`AdminEmployeeController` are both reference implementations now. Copy directly for the Leave Types CRUD grid and Holidays page.
-- **Error pages, exception hierarchy, RFC 7807, email outbox, UI shell, test scaffolding, ArchUnit rules, dev bootstrap, quality gates, Playwright-Java (first stood up in 1.4)** — all as documented in prior phases' history. No changes needed. `EmployeeLifecycleE2ETest` is the reference Playwright spec — reuse its login/outbox-token-extraction helpers rather than re-deriving them.
+- **Everything from 1.1–1.5**: full tenancy/auth/org/people stack; `leave_type`, `public_holiday`, `leave_balance` tables with RLS + `@TenantId`; `timeoff.BalanceService` (grant logic — do not touch its grant paths, this phase only *reads* `leave_balance` and increments `used`); `timeoff.LeaveTypeService`/`PublicHolidayService` admin CRUD; Home dashboard "Book Time Off" balance cards (currently display-only — this phase is what makes them actionable); `people.EmployeeHiredEvent` + `timeoff.EmployeeHiredEventListener` (the event pattern to copy again, see below).
+- **`PeopleFacade`** — already exposes `listActiveEmployeeHireInfo()`/`requireEmployeeHireInfo()`. This phase will likely need employee→manager lookups for approver resolution; check whether `people.Employee.manager()` is reachable through the existing facade surface or needs a new method before assuming a gap.
+- **`timeoff` package and its cross-module wiring pattern (ADR 0009)** — `people` must continue to never import `timeoff`. If this phase needs `people.EmployeeService.applyTermination` to cancel future leave requests (PRD §14.4 — the carried-forward gap from 1.4/1.5), do it the same way `EmployeeHiredEvent` did: `people` publishes an event, `timeoff` listens. Do not add a direct `people → timeoff` call — that reopens the exact package cycle ADR 0009 avoided.
+- **`AnnualGrantJob` fan-out-over-tenants pattern** (`timeoff.AnnualGrantJob`, itself copied from `people.EmployeeTerminationJob`) — not directly reused here (approvals are per-request, not a scheduled job), but the `TenantContext.set/clear` per-tenant-iteration shape is the reference if this phase ends up needing any cross-tenant scheduled job (e.g., auto-expiring stale pending requests, if the PRD calls for it — check before assuming it does).
+- **`email_outbox` + `EmailDispatcher`** (`notifications.system`) — the durable-outbox pattern this phase's approval/rejection/cancellation emails must use. `EmailOutbox`/`EmailDispatcher`/the retry-backoff shape are all already built; this phase adds new email templates/trigger points, not new outbox infrastructure.
+- **htmx + Alpine, offcanvas/modal patterns** — `admin/leave-types.html`, `admin/holidays.html`, `people/profile.html`'s tab-swap pattern are the freshest reference implementations. The Book Time Off modal and the For Action approve/reject modal are new UI shapes (not another list+offcanvas CRUD screen) — check `docs/UI_Guidelines.md` §6 for whether a modal-based flow has its own established pattern yet, or whether this phase is establishing it.
+- **Combined write-then-read `@Transactional` service methods (ADR 0007, reaffirmed by ADR 0009)** — every new controller mutation (book, approve, reject, cancel) needs this shape. Do not let the controller compose a write call and a separate read call itself.
 
-## Remaining Phase 1.5 work
+## Remaining Phase 1.6 work
 
-### Schema + entities (new `leave` package, or extend `people` — decide and record which)
+### Schema + entities
 
-- Flyway migration for `leave_type`, `public_holiday`, `leave_balance` per PRD §21. All tenant-scoped: RLS template + `@TenantId`, `rls_probe` grants in the test migration (3 more tables added to that grant list, following the exact pattern `V202608121242`'s people-tables migration and its isolation-probe update used).
-- `leave_balance.employee_id` — real FK to `employee` (now exists, unlike Phase 1.3's deferred `head_employee_id`).
+- Flyway migration for `leave_request` per PRD §21 (reproduced above in this file's git history / the PRD itself). Tenant-scoped: RLS template + `@TenantId`, `rls_probe` grant added to the test isolation-probe migration (following `V202608141000`'s pattern from 1.5 — one more `GRANT SELECT` line).
+- `LeaveRequest` entity: `employeeId` as a plain `UUID` (not a JPA relation), matching `LeaveBalance.employeeId`'s established convention (ADR-adjacent reasoning: `timeoff` doesn't hold a `people.Employee` JPA reference); `leaveType` as a real `@ManyToOne` (same-package, like `LeaveBalance.leaveType`); `deciderId`/`cancelledBy` as plain `UUID` referencing `app_user` (cross-module, `identity` package — same plain-id convention).
+- Status as a `sealed interface` or `enum` state machine (`PENDING`/`APPROVED`/`REJECTED`/`CANCELLED`) per CLAUDE.md §10's recipe — a `LeaveRequestStateMachine` class, unit-tested exhaustively for every legal/illegal transition.
+- Consider `@Version` optimistic locking on `LeaveBalance` now (CURRENT_PHASE.md's 1.5 predecessor deferred it exactly to this phase, since concurrent approve/cancel racing on `used` is the first real case that needs it — decide and record if this ships or if the risk is accepted for MVP scale).
 
 ### Backend
 
-- `LeaveTypeService` CRUD (mirrors `DivisionService`'s create/edit/archive-or-delete shape where applicable — check PRD §12 for whether Leave Types can be archived or only soft-disabled).
-- `PublicHolidayService` CRUD + CSV bulk upload — this is a new pattern (file upload + parse); check whether `FileStorage` (Phase 1.7) is a hard dependency or whether CSV parsing can happen in-request without persisting the uploaded file itself (likely the latter — the CSV is a one-time input, not a stored document).
-- `BalanceService.grantAnnual(year)` — **idempotent** (PRD explicit requirement, and this phase's DoD tests it directly): running it twice for the same year must not double-grant. `@Scheduled(cron)` fires Jan 1, following `EmployeeTerminationJob`'s fan-out-over-tenants shape.
-- `BalanceService.grantOnHire(employee)` — pro-rates by months remaining in the year. This is exactly the kind of math CLAUDE.md §8 requires TDD for: write the failing test first, across several hire-date fixtures (start of year, mid-year, Dec 31, leap-year edge if relevant).
-- Manual adjustment endpoint (Admin, with required reason). "Required reason → audit" — `audit_entry` itself is Phase 1.11 per 1.4's Not-in-scope note; confirm what "audit" means here before 1.11 lands (likely: reason is a required form field and gets logged via SLF4J at minimum, with the real `audit_entry` write added retroactively in 1.11 the same way other phases have deferred it).
+- `LeaveDurationCalculator` — PRD §12.3's pseudocode, implemented exactly, unit-tested exhaustively (weekend/holiday skipping, half-day edge cases, same-day-both-halves rejection, tenant-specific weekend days from `TenantConfig`/`Tenant.weekendDays`).
+- `LeaveRequestService.book(...)` — balance check (sufficient `remaining()` on the current year's `LeaveBalance`), compute duration, create `PENDING`, resolve approver (`employee.manager()` → fallback to any tenant Admin — check PRD §12.4 step 2 for the exact fallback rule), enqueue approver notification via `email_outbox`, log for the interim audit trail (real `audit_entry` is still Phase 1.11).
+- `LeaveRequestService.approve/reject/cancel(...)` — state machine transitions + `leave_balance.used` adjustment (approved: `+= duration`; rejected: no change; cancelled: `-= duration` if it was approved). No self-approval, ever (PRD BR-6) — enforce in the service, not just the UI.
+- Approver resolution needs a manager→approver read from `people` — go through `PeopleFacade`, adding a method if the current surface doesn't cover it (see "Already in place" above).
 
 ### Frontend
 
-- Admin: Leave Types CRUD grid — reuse the list+offcanvas pattern (`people/list.html` is the more recent, more complete reference over `admin/organization.html`).
-- Admin: Holidays page with a calendar picker + CSV upload control.
-- Employee: Home dashboard "Book Time Off" cards showing balance per type — this reads `leave_balance` rows on the existing (currently mostly-empty) home page; check what's there today before assuming a blank slate.
+- Book Time Off modal (top bar CTA + Home dashboard cards) — type selector scoped to active leave types with remaining balance, date range, half-day toggles, live duration preview, note, submit.
+- Profile → Time Off tab — now real: budget cards (can likely reuse `HomeController.BalanceCard`'s shape) + request history table. This is the tab `people/profile.html`'s comment has been marking as omitted since Phase 1.3.
+- For Action page — pending requests scoped to the signed-in user's approval authority (Manager: direct + indirect reports per PRD §26; Admin: any). Approve/reject modal with an optional note.
+- Sidebar "For Action" nav item currently renders `disabled` — this is the phase that makes it real (see `fragments/sidebar.html`).
 
 ### Tests
 
-- Grant idempotency: running `grantAnnual(year)` twice produces the same balances, not doubled ones.
-- Pro-rate math correctness across hire-date fixtures (see above).
-- Tenant isolation test for all 3 new tables (JPA + raw-JDBC `rls_probe`), mirroring `PeopleTenantIsolationTest`.
-- RBAC: Admin-only on Leave Types/Holidays CRUD and the manual adjustment endpoint; Employee read-only on their own balance.
-- Playwright: extend `EmployeeLifecycleE2ETest`'s pattern, or add a new spec, for "Admin defines a leave type → uploads holidays → employee's balance appears" if screens exist by the time this is written — check DoD wording; a service-level integration test may satisfy the DoD without a browser test if no new employee-facing screen ships this phase beyond the dashboard cards.
+- Exhaustive unit tests on `LeaveDurationCalculator` (CLAUDE.md §8 names this explicitly): DST transitions, year boundaries, tenant-specific weekend variants, every half-day combination from PRD §12.3's pseudocode including the invalid-combination rejection.
+- Integration: book → approve → balance debited → email queued (assert the outbox row, not a real send). Book → reject → balance unchanged. Approve → cancel → balance credited back.
+- Tenant isolation test for `leave_request`, mirroring `TimeoffTenantIsolationTest`'s 1.5 shape.
+- RBAC: booking is self-service for all three roles; approval is Manager-of-reports-only or Admin-any; a Manager attempting to approve a non-report's request must be denied; self-approval must be denied even for an Admin who is also the requester.
+- E2E: the PRD's own worked example (or equivalent) — Employee books N days, Manager approves, Employee sees APPROVED in history — mirroring `EmployeeLifecycleE2ETest`/`LeaveConfigE2ETest`'s helper-reuse convention.
 
-## Definition of Done for Phase 1.5
+## Definition of Done for Phase 1.6
 
-- Admin defines 3 leave types.
-- Admin uploads a holiday calendar (e.g. "UAE 2026").
-- Employee sees their balances on the home dashboard.
-- Running `grantAnnual(2027)` in January produces fresh balances — and running it twice does not double them.
-- Every new table: RLS + `@TenantId` + tenant-isolation test.
-- `./mvnw verify` green, PMD at zero violations, ArchUnit green with no new exemptions.
+- Full happy path works end-to-end through the browser (book → approve → balance updates → email queued).
+- Insufficient balance blocks booking with a clear error, not a generic 500/validation dump.
+- Cancelling an approved request returns the balance.
+- No self-approval possible, by construction, proven by test — not by review.
+- `leave_request`: RLS + `@TenantId` + a passing tenant-isolation test.
+- `./mvnw verify` green, PMD at zero violations, ArchUnit green with no new exemptions (the `people`↔`timeoff` acyclic boundary from ADR 0009 must still hold if this phase closes the termination-cascade gap).
 
-## Not in scope for Phase 1.5 — do not start any of this
+## Not in scope for Phase 1.6 — do not start any of this
 
-- Booking, approving, rejecting, or cancelling leave — Phase 1.6 owns `leave_request` and the whole request lifecycle.
-- The leave-duration algorithm (PRD §12.3) itself — Phase 1.6.
-- `audit_entry` as a real persisted table — Phase 1.11 (see note above on what "→ audit" means until then).
-- File storage for the holiday CSV as a retained document — Phase 1.7, unless the CSV is parsed-and-discarded rather than stored (likely the right call; confirm in an ADR only if there's a reason to persist the raw upload).
+- Real persisted `audit_entry` — still Phase 1.11. Continue the interim SLF4J-logging convention.
+- Auto-expiring/auto-escalating stale pending requests, unless the PRD explicitly calls for it — check before building it as a "seems obviously needed" addition (CLAUDE.md §11: no speculative features).
+- Team/org-wide leave calendar view (PRD §26 lists "View team calendar" as in scope for all roles, but check whether that's this phase's job or a later reporting-phase concern before building it here).
+- Employee custom fields, grid/tree People views — still Phase 2, unrelated to this phase anyway.
 
 ## Carried forward — open items
 
@@ -74,16 +77,15 @@ These were accepted deviations, not oversights. Do not silently "fix" them; they
 - **Password-reset enumeration safety is response-shape only**, not constant-time. ADR 0006 decision E.
 - **No common-password blocklist.** ADR 0006 decision F.
 - **Tenant primary colour not yet injected into `--bs-primary`.** Phase 1.10 owns tenant branding.
-- **Peer-to-peer profile viewing (PRD §26 "View peer profile 🔒 basic") is not implemented.** Phase 1.4 built self/Admin/manager-of-report viewing only (`EmployeeService.getProfileForViewer`); an Employee or Manager cannot yet view an unrelated colleague's basic profile fields. Deferred because 1.4's DoD didn't require it and a "basic fields only" projection is a real design decision (which fields count as "basic"?) worth its own moment rather than a rushed addition. Revisit when a screen actually needs peer browsing (People directory search, org chart, etc.).
-- **Termination's "cancel future leave requests" (PRD §14.4) is a no-op.** `EmployeeService.applyTermination` has a one-line comment marking where the call goes once `leave_request` exists — this phase's sibling, 1.6, is what finally closes this gap (not 1.5, since `leave_request` isn't created until 1.6).
-- **Employee custom fields** — schema only (`employee_custom_field_definition`/`_value`), no UI. Phase 2, PRD §14.5.
-- **Grid/tree People views** — Phase 2, PRD §8.3.
-- **Tasks and Time Off tabs on the Profile page are omitted from the nav**, not built as disabled placeholders. Time Off's tab becomes real once this phase (balances) and 1.6 (requests) both land — re-add it then, not before. Tasks stays deferred to Phase 2.
-- **`EmployeeTerminationJob` processes one tenant's due terminations per `TenantFacade.listActiveTenantIds()` pass**, called serially in a loop rather than in parallel. Fine at current dev/pilot tenant counts (PRD's stated scale: MHZ + 2-5 pilots); revisit if tenant count ever makes serial fan-out a real latency concern for the scheduled job — not before there's a benchmark showing a problem (CLAUDE.md §11).
+- **Peer-to-peer profile viewing (PRD §26 "View peer profile 🔒 basic") is not implemented.** Deferred since Phase 1.4; still not this phase's job.
+- **Termination's "cancel future leave requests" (PRD §14.4) is a no-op.** This is finally this phase's job — `leave_request` now exists. Close it via the event pattern described above under "Already in place," not a direct `people → timeoff` call.
+- **`EmployeeTerminationJob`/`AnnualGrantJob` process tenants serially, not in parallel.** Still fine at current scale (CLAUDE.md §11) — revisit only with a benchmark showing a problem.
+- **Manual leave-balance adjustment (`BalanceService.adjustManually`, added in 1.5) has no dedicated admin screen**, by design — it's a backend capability tested via RBAC only. Revisit if a real need for an adjustment UI surfaces; not assumed needed by this phase.
+- **`AdminEmployeeController`'s write-then-separate-read transaction shape has an open correctness question** (ADR 0009's Context/Consequences) — not investigated or fixed in 1.5. If this phase adds any new mutation to `AdminEmployeeController` itself, follow `AdminLeaveController`'s combined-transaction shape instead of extending the unconfirmed pattern further.
 
 ## When you finish
 
 1. Confirm every DoD item above with a specific test or command result — do not claim done from vibes.
-2. Update this file to Phase 1.6 (this file's 1.4 → 1.5 update is the template).
-3. Commit `phase-1.5-leave-config` and open a PR against `main`.
-4. Do not start Phase 1.6 in the same session.
+2. Update this file to whatever sub-phase comes next (this file's 1.5 → 1.6 update is the template).
+3. Commit `phase-1.6-leave-approvals` and open a PR against `main`.
+4. Do not start the next phase in the same session.

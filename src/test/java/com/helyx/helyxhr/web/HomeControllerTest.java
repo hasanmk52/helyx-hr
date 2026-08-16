@@ -17,7 +17,10 @@ import com.helyx.helyxhr.people.EmployeeService;
 import com.helyx.helyxhr.tenant.Tenant;
 import com.helyx.helyxhr.tenant.TenantContext;
 import com.helyx.helyxhr.tenant.TenantRepository;
+import com.helyx.helyxhr.timeoff.LeaveTypeService;
+import java.math.BigDecimal;
 import java.net.URI;
+import java.time.LocalDate;
 import java.util.UUID;
 import java.util.function.Supplier;
 import org.junit.jupiter.api.BeforeEach;
@@ -51,6 +54,7 @@ class HomeControllerTest {
     @Autowired private EmployeeService employeeService;
     @Autowired private AppUserRepository appUsers;
     @Autowired private AppUserDetailsService userDetailsService;
+    @Autowired private LeaveTypeService leaveTypeService;
 
     private String slug;
     private UUID tenantId;
@@ -90,7 +94,27 @@ class HomeControllerTest {
                 .andExpect(content().string(org.hamcrest.Matchers.not(containsString("Welcome, "))));
     }
 
+    @Test
+    void home_withGrantedBalance_showsBookTimeOffCard() throws Exception {
+        run(
+                () ->
+                        leaveTypeService.create(
+                                "Annual", null, null, true, true, false, true, new BigDecimal("30"), null));
+        Employee employee = createEmployee("Priya", "Shah", LocalDate.now());
+        UserDetails principal = loadPrincipal(employee.email());
+
+        mockMvc
+                .perform(url("/").with(user(principal)))
+                .andExpect(status().isOk())
+                .andExpect(content().string(containsString("Book Time Off")))
+                .andExpect(content().string(containsString("Annual")));
+    }
+
     private Employee createEmployee(String firstName, String lastName) {
+        return createEmployee(firstName, lastName, null);
+    }
+
+    private Employee createEmployee(String firstName, String lastName, LocalDate hireDate) {
         Employee employee =
                 run(
                         () ->
@@ -99,8 +123,8 @@ class HomeControllerTest {
                                                 firstName,
                                                 lastName,
                                                 UUID.randomUUID() + "@example.test",
-                                                null, null, null, null, null, null, null, null, null, null, null,
-                                                null, null, null, null, null),
+                                                null, null, null, null, null, null, null, hireDate, null, null,
+                                                null, null, null, null, null, null),
                                         BASE_URL,
                                         TENANT_NAME));
         run(() -> employeeService.activateForUser(employee.userId()));
