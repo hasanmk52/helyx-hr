@@ -13,6 +13,7 @@ import com.helyx.helyxhr.org.Department;
 import com.helyx.helyxhr.org.DepartmentRepository;
 import com.helyx.helyxhr.org.Division;
 import com.helyx.helyxhr.org.DivisionRepository;
+import com.helyx.helyxhr.people.EmployeeRepository;
 import com.helyx.helyxhr.tenant.Tenant;
 import com.helyx.helyxhr.tenant.TenantContext;
 import com.helyx.helyxhr.tenant.TenantRepository;
@@ -49,6 +50,7 @@ class AdminEmployeeControllerTest {
     @Autowired private TenantRepository tenants;
     @Autowired private DivisionRepository divisions;
     @Autowired private DepartmentRepository departments;
+    @Autowired private EmployeeRepository employees;
     @Autowired private TransactionTemplate transactions;
 
     private String slug;
@@ -92,6 +94,60 @@ class AdminEmployeeControllerTest {
                 .perform(get(URI.create("http://" + slug + ".localhost/admin/employees")).with(admin()))
                 .andExpect(status().isOk())
                 .andExpect(content().string(containsString("Engineering")));
+    }
+
+    /**
+     * The user-facing half of the {@code create}-with-a-manager fix: the service-level proof lives
+     * in {@code EmployeeServiceTest}, but only a real form POST shows that the Manager select on
+     * the Add Employee offcanvas ({@code people/list.html}) no longer produces a 500. Before the
+     * fix this returned an error page, because {@code create} performed the manager transition
+     * before {@code save()} had assigned the employee an id.
+     */
+    @Test
+    void createEmployeeWithManager_returnsOkRatherThanServerError() throws Exception {
+        UUID departmentId = seedDepartment("Operations");
+        UUID managerId = createEmployeeReturningId("Boss", "Person", "boss@emp-ctrl.test", departmentId);
+
+        mockMvc
+                .perform(
+                        post(URI.create("http://" + slug + ".localhost/admin/employees"))
+                                .param("firstName", "Report")
+                                .param("lastName", "Person")
+                                .param("email", "report@emp-ctrl.test")
+                                .param("departmentId", departmentId.toString())
+                                .param("managerId", managerId.toString())
+                                .with(admin())
+                                .with(csrf()))
+                .andExpect(status().isOk())
+                .andExpect(content().string(containsString("Report")));
+    }
+
+    /** Creates through the real endpoint, then reads the id back the way a follow-up request would. */
+    private UUID createEmployeeReturningId(
+            String firstName, String lastName, String email, UUID departmentId) throws Exception {
+        mockMvc
+                .perform(
+                        post(URI.create("http://" + slug + ".localhost/admin/employees"))
+                                .param("firstName", firstName)
+                                .param("lastName", lastName)
+                                .param("email", email)
+                                .param("departmentId", departmentId.toString())
+                                .with(admin())
+                                .with(csrf()))
+                .andExpect(status().isOk());
+
+        TenantContext.set(tenantId);
+        try {
+            return transactions.execute(
+                    status ->
+                            employees.findAllByOrderByLastNameAscFirstNameAsc().stream()
+                                    .filter(employee -> employee.email().equals(email))
+                                    .findFirst()
+                                    .orElseThrow()
+                                    .requireId());
+        } finally {
+            TenantContext.clear();
+        }
     }
 
     private UUID seedDepartment(String name) {
