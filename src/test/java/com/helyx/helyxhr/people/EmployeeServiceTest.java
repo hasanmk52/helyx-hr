@@ -2,6 +2,7 @@ package com.helyx.helyxhr.people;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.junit.jupiter.api.Assertions.assertTimeoutPreemptively;
 
 import com.helyx.helyxhr.common.ConflictException;
 import com.helyx.helyxhr.common.NotFoundException;
@@ -24,6 +25,7 @@ import com.helyx.helyxhr.tenant.TenantContext;
 import com.helyx.helyxhr.tenantisolation.TenantIsolationTestBase;
 import java.math.BigDecimal;
 import java.nio.charset.StandardCharsets;
+import java.time.Duration;
 import java.time.LocalDate;
 import java.net.URLDecoder;
 import java.util.List;
@@ -59,6 +61,7 @@ class EmployeeServiceTest extends TenantIsolationTestBase {
     @Autowired private MutableClock clock;
     @Autowired private InviteService inviteService;
     @Autowired private EmailOutboxRepository emailOutbox;
+    @Autowired private org.springframework.transaction.support.TransactionTemplate transactions;
 
     private static final Pattern TOKEN_IN_LINK = Pattern.compile("[?&]token=([A-Za-z0-9_%\\-]+)");
 
@@ -235,6 +238,74 @@ class EmployeeServiceTest extends TenantIsolationTestBase {
         assertThatThrownBy(
                         () -> asTenant(tenantA, () -> employeeService.reassignManager(employee.requireId(), employee.requireId())))
                 .isInstanceOf(ValidationException.class);
+    }
+
+    @Test
+    void reassignManager_toAManagerWhoAlreadyReportsToTheEmployee_throwsValidation() {
+        Employee boss = createActiveEmployee("Boss", "Person");
+        Employee report = createActiveEmployee("Report", "Person");
+        asTenant(tenantA, () -> employeeService.reassignManager(report.requireId(), boss.requireId()));
+
+        // Closing the loop the other way round: boss would report to their own report.
+        assertThatThrownBy(
+                        () -> asTenant(tenantA, () -> employeeService.reassignManager(boss.requireId(), report.requireId())))
+                .isInstanceOf(ValidationException.class);
+    }
+
+    /** The same rule two levels up: the loop does not have to be direct to be a loop. */
+    @Test
+    void reassignManager_toAManagerWhoReportsIndirectlyToTheEmployee_throwsValidation() {
+        Employee top = createActiveEmployee("Top", "Person");
+        Employee middle = createActiveEmployee("Middle", "Person");
+        Employee bottom = createActiveEmployee("Bottom", "Person");
+        asTenant(tenantA, () -> employeeService.reassignManager(middle.requireId(), top.requireId()));
+        asTenant(tenantA, () -> employeeService.reassignManager(bottom.requireId(), middle.requireId()));
+
+        assertThatThrownBy(
+                        () -> asTenant(tenantA, () -> employeeService.reassignManager(top.requireId(), bottom.requireId())))
+                .isInstanceOf(ValidationException.class);
+    }
+
+    /**
+     * The other half of the cycle fix, and the reason the guard alone is not enough: the guard
+     * cannot repair a loop written before it existed, and {@code isManagerOf} is itself the query
+     * that walks the chain.
+     *
+     * <p>The failing case is specifically a <em>false</em> answer. {@code EXISTS} short-circuits
+     * the moment it finds a match, so a question whose answer is "yes" returns even from a cyclic
+     * chain; a question whose answer is "no" has to exhaust the recursion, which under {@code
+     * UNION ALL} never ends. That is the access-<em>denied</em> path — a manager viewing someone
+     * who is not their report — so the hang landed on the branch that protects data, not the one
+     * that serves it.
+     *
+     * <p>Wrapped in a preemptive timeout because the pre-fix failure mode is an unbounded query,
+     * not a wrong answer: without it a regression here would hang the build instead of failing it.
+     */
+    @Test
+    void isManagerOf_whenTheChainAlreadyContainsACycle_terminatesAndReturnsFalse() {
+        Employee a = createActiveEmployee("Cycle", "Aye");
+        Employee b = createActiveEmployee("Cycle", "Bee");
+        Employee outsider = createActiveEmployee("Outside", "Person");
+        asTenant(tenantA, () -> employeeService.reassignManager(a.requireId(), b.requireId()));
+
+        // Deliberately bypasses reassignManager's new guard, writing the entity field directly:
+        // this reproduces a loop that predates the guard, which is exactly what the guard cannot
+        // help with.
+        asTenant(
+                tenantA,
+                () ->
+                        transactions.execute(
+                                status -> {
+                                    Employee managed = employees.findById(b.requireId()).orElseThrow();
+                                    managed.reassignManager(employees.findById(a.requireId()).orElseThrow());
+                                    return null;
+                                }));
+
+        boolean reachable =
+                assertTimeoutPreemptively(
+                        Duration.ofSeconds(20),
+                        () -> asTenant(tenantA, () -> employees.isManagerOf(outsider.requireId(), a.requireId())));
+        assertThat(reachable).isFalse();
     }
 
     /**

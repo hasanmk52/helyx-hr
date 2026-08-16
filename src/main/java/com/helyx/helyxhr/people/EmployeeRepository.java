@@ -67,13 +67,25 @@ public interface EmployeeRepository extends TenantAwareRepository<Employee> {
      * TenantSessionVariableListener} has already set {@code app.tenant_id} on this transaction's
      * connection (ADR 0004). Table names are schema-qualified because native SQL, unlike
      * Hibernate-generated SQL, is not rewritten by {@code hibernate.default_schema}.
+     *
+     * <p>{@code UNION}, emphatically not {@code UNION ALL}: {@code UNION} discards rows already
+     * produced, which bounds the walk to the number of employees in the tenant even when the
+     * {@code manager_id} chain contains a loop. {@code UNION ALL} recurses forever on one.
+     * {@code EmployeeService} refuses to create a loop, but that guard cannot repair one written
+     * before it existed — and this query is what the guard itself runs, so it has to be the half
+     * that is safe unconditionally.
+     *
+     * <p>The unbounded case was specifically a <em>false</em> result. {@code EXISTS}
+     * short-circuits on the first match, so a "yes" returns even from a cyclic chain; only a "no"
+     * has to exhaust the recursion. That is the access-denied path, so the old query hung on the
+     * branch that refuses access rather than the one that grants it.
      */
     @Query(
             value =
                     """
                     WITH RECURSIVE ancestors AS (
                       SELECT manager_id FROM helyx_hr.employee WHERE id = :employeeId
-                      UNION ALL
+                      UNION
                       SELECT e.manager_id FROM helyx_hr.employee e
                         JOIN ancestors a ON e.id = a.manager_id
                     )

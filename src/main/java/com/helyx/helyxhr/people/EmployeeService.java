@@ -262,6 +262,11 @@ public class EmployeeService {
             throw new ValidationException(
                     "EMPLOYEE_CANNOT_MANAGE_SELF", "An employee cannot be their own manager");
         }
+        if (managerId != null && wouldCloseAReportingLoop(employee.requireId(), managerId)) {
+            throw new ValidationException(
+                    "EMPLOYEE_MANAGER_CYCLE",
+                    "That person already reports to this employee, directly or through their team");
+        }
         Employee manager = managerId == null ? null : require(managerId);
         LocalDate today = LocalDate.now(clock);
         managerHistory
@@ -309,6 +314,22 @@ public class EmployeeService {
         // Cancelling future leave requests (PRD §14.4) is a no-op until leave_request exists
         // (Phase 1.5/1.6) — reserved gap, not an oversight (see CURRENT_PHASE.md carried-forward).
         log.info("Terminated employee {}", employee.requireId());
+    }
+
+    /**
+     * Whether pointing {@code employeeId} at {@code proposedManagerId} would close a loop in the
+     * reporting line — which it does exactly when the proposed manager already reports up to this
+     * employee, so that the employee would end up an ancestor of their own manager.
+     *
+     * <p>Reads as the mirror image of {@link EmployeeRepository#isManagerOf}, and exists to name
+     * that inversion: the arguments are the caller's swapped round, which is easy to get backwards
+     * and impossible to notice at the call site.
+     *
+     * <p>Only reachable from a reassignment. A newly created employee has no reports yet, so the
+     * create path cannot close a loop however its manager is chosen.
+     */
+    private boolean wouldCloseAReportingLoop(UUID employeeId, UUID proposedManagerId) {
+        return employees.isManagerOf(employeeId, proposedManagerId);
     }
 
     /**
