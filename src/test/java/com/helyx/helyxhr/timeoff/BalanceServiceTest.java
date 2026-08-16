@@ -206,26 +206,10 @@ class BalanceServiceTest extends TenantIsolationTestBase {
         assertThat(second).isZero();
     }
 
-    @Test
-    void grantAnnual_onlyGrantsForTheOwningTenant() {
-        asTenant(
-                tenantA,
-                () ->
-                        leaveTypeService.create(
-                                "Annual", null, null, true, true, false, true, new BigDecimal("24"), null));
-        Employee employeeA =
-                asTenant(
-                        tenantA,
-                        () ->
-                                employeeService.create(
-                                        createEmployeeForm(LocalDate.of(2020, 1, 1)), BASE_URL, TENANT_NAME));
-
-        asTenant(tenantA, () -> balanceService.grantAnnual(2027));
-
-        List<LeaveBalance> forTenantB =
-                asTenant(tenantB, () -> balances.findAllByEmployeeIdAndYear(employeeA.requireId(), 2027));
-        assertThat(forTenantB).isEmpty();
-    }
+    // Tenant isolation for grantAnnual is covered more thoroughly by
+    // AnnualGrantJobTest (two tenants, two different allowances, asserting each tenant's
+    // grant reflects only its own leave type) and by TimeoffTenantIsolationTest (the general
+    // RLS mechanism for leave_balance) — no need to re-prove it a third time here.
 
     private EmployeeForms.CreateEmployee createEmployeeForm(LocalDate hireDate) {
         return new EmployeeForms.CreateEmployee(
