@@ -180,17 +180,21 @@
     <div class="row g-2 mb-2">
       <div class="col-6">
         <label class="form-label" for="create-departmentId">Department</label>
-        <select class="form-select" id="create-departmentId" th:field="*{departmentId}">
+        <select class="form-select" id="create-departmentId" th:field="*{departmentId}"
+                th:classappend="${#fields.hasErrors('departmentId')} ? 'is-invalid'">
           <option value="">—</option>
           <option th:each="option : ${departmentOptions}" th:value="${option.id}" th:text="${option.name}">Engineering</option>
         </select>
+        <div class="invalid-feedback" th:if="${#fields.hasErrors('departmentId')}" th:errors="*{departmentId}">Invalid</div>
       </div>
       <div class="col-6">
         <label class="form-label" for="create-managerId">Manager</label>
-        <select class="form-select" id="create-managerId" th:field="*{managerId}">
+        <select class="form-select" id="create-managerId" th:field="*{managerId}"
+                th:classappend="${#fields.hasErrors('managerId')} ? 'is-invalid'">
           <option value="">—</option>
           <option th:each="option : ${managerOptions}" th:value="${option.id}" th:text="${option.fullName}">Jane Doe</option>
         </select>
+        <div class="invalid-feedback" th:if="${#fields.hasErrors('managerId')}" th:errors="*{managerId}">Invalid</div>
       </div>
     </div>
     <div class="row g-2 mb-2">
@@ -285,17 +289,21 @@
     <div class="row g-2 mb-2">
       <div class="col-6">
         <label class="form-label" for="edit-departmentId">Department</label>
-        <select class="form-select" id="edit-departmentId" th:field="*{departmentId}">
+        <select class="form-select" id="edit-departmentId" th:field="*{departmentId}"
+                th:classappend="${#fields.hasErrors('departmentId')} ? 'is-invalid'">
           <option value="">—</option>
           <option th:each="option : ${departmentOptions}" th:value="${option.id}" th:text="${option.name}">Engineering</option>
         </select>
+        <div class="invalid-feedback" th:if="${#fields.hasErrors('departmentId')}" th:errors="*{departmentId}">Invalid</div>
       </div>
       <div class="col-6">
         <label class="form-label" for="edit-managerId">Manager</label>
-        <select class="form-select" id="edit-managerId" th:field="*{managerId}">
+        <select class="form-select" id="edit-managerId" th:field="*{managerId}"
+                th:classappend="${#fields.hasErrors('managerId')} ? 'is-invalid'">
           <option value="">—</option>
           <option th:each="option : ${managerOptions}" th:value="${option.id}" th:text="${option.fullName}">Jane Doe</option>
         </select>
+        <div class="invalid-feedback" th:if="${#fields.hasErrors('managerId')}" th:errors="*{managerId}">Invalid</div>
       </div>
     </div>
     <div class="row g-2 mb-2">

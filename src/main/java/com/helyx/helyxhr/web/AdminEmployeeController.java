@@ -91,7 +91,7 @@ class AdminEmployeeController {
                 populateFormOptions(model);
                 return "people/list :: createForm";
             } catch (HelyxException exception) {
-                binding.rejectValue("email", exception.errorCode(), exception.getMessage());
+                binding.rejectValue(fieldFor(exception), exception.errorCode(), exception.getMessage());
             }
         }
         populateFormOptions(model);
@@ -125,7 +125,7 @@ class AdminEmployeeController {
                 model.addAttribute("editingEmployeeId", id);
                 return "people/list :: editForm";
             } catch (HelyxException exception) {
-                binding.rejectValue("email", exception.errorCode(), exception.getMessage());
+                binding.rejectValue(fieldFor(exception), exception.errorCode(), exception.getMessage());
             }
         }
         model.addAttribute("editingEmployeeId", id);
@@ -198,6 +198,33 @@ class AdminEmployeeController {
                 employee.workingHoursPerDay(),
                 employee.currency(),
                 employee.baseCompensation());
+    }
+
+    /**
+     * Routes a service-layer failure to the form field that caused it, so the red message appears
+     * under the control the Admin has to change. Mirrors {@code AdminOrganizationController}'s
+     * helper of the same name.
+     *
+     * <p>Everything used to be rejected onto {@code email}, which was right while a duplicate
+     * address was the only failure this form could produce. It stopped being right once the
+     * manager and department selects could fail on their own: a refused reporting loop rendered
+     * under Email with the Manager select looking untouched.
+     *
+     * <p>{@code EMPLOYEE_NOT_FOUND} maps to the manager select because the manager is the only
+     * employee id this form submits — the employee being edited arrives as a path variable, and a
+     * bad one there is a 404, not a field error.
+     *
+     * <p>The default is {@code email} rather than a global error on purpose: it is the one field
+     * that is always rendered and always present, so an error code nobody has mapped yet still
+     * reaches the user. A global {@code reject} would render nowhere in this template and the
+     * save would appear to silently do nothing.
+     */
+    private static String fieldFor(HelyxException exception) {
+        return switch (exception.errorCode()) {
+            case "EMPLOYEE_CANNOT_MANAGE_SELF", "EMPLOYEE_MANAGER_CYCLE", "EMPLOYEE_NOT_FOUND" -> "managerId";
+            case "DEPARTMENT_ARCHIVED", "DEPARTMENT_NOT_FOUND" -> "departmentId";
+            default -> "email";
+        };
     }
 
     private static void toast(HttpServletResponse response, String message) {
